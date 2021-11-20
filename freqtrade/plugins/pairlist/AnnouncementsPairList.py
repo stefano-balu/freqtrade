@@ -409,7 +409,7 @@ class KucoinAnnouncement(AnnouncementMixin):
         self._df.to_csv(self.db_path, index=False) if self.db_path.endswith('csv') else self.save_db()
 
     def get_datetime_announcement(self, data: dict):
-        return datetime.strptime(data['publish_at'], '%Y-%m-%d %H:%M:%S')
+        return datetime.strptime(data['publish_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.utc)
 
     def get_announcement_url(self, path: str) -> str:
         # https://www.kucoin.com/news/en-aragon-ant-gets-listed-on-kucoin
