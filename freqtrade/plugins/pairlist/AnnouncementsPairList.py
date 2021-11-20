@@ -5,6 +5,7 @@ Provides dynamic pair list based on exchanges announcements.
 
 Supported exchanges:
 - Binance
+- Kucoin
 
 """
 import random
@@ -408,7 +409,7 @@ class KucoinAnnouncement(AnnouncementMixin):
         self._df.to_csv(self.db_path, index=False) if self.db_path.endswith('csv') else self.save_db()
 
     def get_datetime_announcement(self, data: dict):
-        return datetime.strptime(data['publish_at'], "YYYY-mm-dd HH:MM:SS")
+        return datetime.strptime(data['publish_at'], '%Y-%m-%d %H:%M:%S')
 
     def get_announcement_url(self, path: str) -> str:
         # https://www.kucoin.com/news/en-aragon-ant-gets-listed-on-kucoin
@@ -528,6 +529,8 @@ class AnnouncementsPairList(IPairList):
         assert hasattr(exchange, 'update_announcements'), '`update_announcements` method is required'
         assert hasattr(exchange, 'TOKEN_COL'), '`TOKEN_COL` attribute is required'
         assert hasattr(exchange, 'ANNOUNCEMENT_COL'), '`ANNOUNCEMENT_COL` attribute is required'
+        assert exchange.TOKEN_COL is not None
+        assert exchange.ANNOUNCEMENT_COL is not None
         return exchange
 
     def _validate_pair(self, pair: str, ticker: Dict[str, Any]) -> bool:
