@@ -447,8 +447,8 @@ class AnnouncementsPairList(IPairList):
 
         try:
             for pair_exchange in self._pair_exchanges:
-                pair_exchange_kwargs = self._pairlistconfig[pair_exchange].get('exchange_kwargs', {})
-                pair_exchange_kwargs['whitelist_hours'] = self._pairlistconfig[pair_exchange].get('hours', 24)
+                pair_exchange_kwargs = self._pairlistconfig['exchanges'][pair_exchange].get('exchange_kwargs', {})
+                pair_exchange_kwargs['whitelist_hours'] = self._pairlistconfig['exchanges'][pair_exchange].get('hours', 24)
                 self.pair_exchanges.append(self._init_pair_exchange(pair_exchange, config, **pair_exchange_kwargs))
         except AssertionError as e:
             raise OperationalException(f"Announcement class is improperly configured. Exception: {e}") from e
