@@ -3,7 +3,7 @@ Announcements PairList provider
 
 Provides dynamic pair list based on exchanges announcements.
 
-Supported exchanges:
+Supported Announcement exchanges:
 - Binance
 - Kucoin
 
@@ -41,8 +41,8 @@ class AnnouncementMixin:
     TOKEN_COL: str
     ANNOUNCEMENT_COL: str
 
-    def __init__(self, refresh_period: Optional[int] = None, *args, **kwargs):
-        self._refresh_period = refresh_period or self.REFRESH_PERIOD
+    def __init__(self, whitelist_hours: int, *args, **kwargs):
+        self.whitelist_hours = whitelist_hours
 
     @abstractmethod
     def update_announcements(self, *args, **kwargs) -> pd.DataFrame:
@@ -82,9 +82,9 @@ class BinanceAnnouncement(AnnouncementMixin):
     table_name = 'binanceannouncements'
     _df: Optional[pd.DataFrame] = None
 
-    def __init__(self, refresh_period: Optional[int] = None, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.db_path = kwargs.pop('db_path', "user_data/data/BinanceAnnouncements_announcements.csv")
-        super().__init__(refresh_period, *args, **kwargs)
+        super().__init__(*args, **kwargs)
 
     def update_announcements(self, page_number=1, page_size=10, max_page=100, history=False) -> pd.DataFrame:
         headers = {
@@ -241,7 +241,8 @@ class BinanceAnnouncement(AnnouncementMixin):
         exc = OperationalException(msg)
         logger.error(exc)
 
-    def get_token_by_article(self, article_link, raise_exceptions: bool = True):
+    @staticmethod
+    def get_token_by_article(article_link, raise_exceptions: bool = True):
         # TODO
         if raise_exceptions:
             raise ValueError("Token not found")
@@ -283,9 +284,8 @@ class KucoinAnnouncement(AnnouncementMixin):
 
     _df: Optional[pd.DataFrame] = None
 
-    def __init__(self, refresh_period: Optional[int] = None, *args, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.db_path = kwargs.get('db_path', "user_data/data/KucoinAnnouncements_announcements.csv")
-        self._refresh_period = refresh_period or self.REFRESH_PERIOD
         super().__init__(*args, **kwargs)
 
     def update_announcements(self, page_number=1, page_size=10, max_page=100, history=False) -> pd.DataFrame:
@@ -408,7 +408,8 @@ class KucoinAnnouncement(AnnouncementMixin):
         self._df = df.sort_values(by='Datetime announcement')
         self._df.to_csv(self.db_path, index=False) if self.db_path.endswith('csv') else self.save_db()
 
-    def get_datetime_announcement(self, data: dict):
+    @staticmethod
+    def get_datetime_announcement(data: dict):
         return datetime.strptime(data['publish_at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=pytz.utc) - timedelta(hours=8)
 
     def get_announcement_url(self, path: str) -> str:
@@ -434,20 +435,21 @@ class AnnouncementsPairList(IPairList):
 
         super().__init__(exchange, pairlistmanager, config, pairlistconfig, pairlist_pos)
 
-        if 'exchange' not in self._pairlistconfig:
+        if 'exchanges' not in self._pairlistconfig or not self._pairlistconfig['exchanges']:
             raise OperationalException(
-                '`exchange` not specified. Please check your configuration '
-                'for "pairlist.config.exchange"')
+                '`exchanges` not specified. Please check your configuration '
+                'for "pairlist.config.exchanges"')
 
         self._stake_currency = config['stake_currency']
-        self._hours = self._pairlistconfig.get('hours', 24)
-        self._pair_exchange = self._pairlistconfig['exchange']
-        self._refresh_period = self._pairlistconfig.get('refresh_period', self.REFRESH_PERIOD)
-        self._pair_cache: TTLCache = TTLCache(maxsize=1, ttl=self._refresh_period)
+        self._pair_exchanges = list(self._pairlistconfig['exchanges'].keys())
+        self._pair_cache = TTLCache(maxsize=1, ttl=self._pairlistconfig.get('refresh_period', self.REFRESH_PERIOD))
+        self.pair_exchanges = []
 
-        pair_exchange_kwargs = self._pairlistconfig.get('exchange_kwargs', {})
         try:
-            self.pair_exchange = self._init_pair_exchange(config, **pair_exchange_kwargs)
+            for pair_exchange in self._pair_exchanges:
+                pair_exchange_kwargs = self._pairlistconfig[pair_exchange].get('exchange_kwargs', {})
+                pair_exchange_kwargs['whitelist_hours'] = self._pairlistconfig[pair_exchange].get('hours', 24)
+                self.pair_exchanges.append(self._init_pair_exchange(pair_exchange, config, **pair_exchange_kwargs))
         except AssertionError as e:
             raise OperationalException(f"Announcement class is improperly configured. Exception: {e}") from e
 
@@ -471,7 +473,7 @@ class AnnouncementsPairList(IPairList):
         """
         Short whitelist method description - used for startup-messages
         """
-        return f"{self.name} - {self._pair_exchange} exchange announced pairs."
+        return f"{self.name} - {', '.join(self._pair_exchanges)} announced pairs."
 
     def gen_pairlist(self, tickers: Dict) -> List[str]:
         """
@@ -504,27 +506,34 @@ class AnnouncementsPairList(IPairList):
         :param tickers: Tickers (from exchange.get_tickers()). May be cached.
         :return: new whitelist
         """
-        df = self.pair_exchange.get_df() if self.STATIC else self.pair_exchange.update_announcements(
-            page_size=random.randint(1, 100)  # randomize page size to avoid binance caching document page
-        )
-        df = df[df[self.pair_exchange.ANNOUNCEMENT_COL] > (datetime.now(tz=pytz.utc) - timedelta(hours=self._hours))]
-        if df.empty:
-            return []
+        filtered_pairlist = []
+        for pair_exchange in self.pair_exchanges:
+            df = pair_exchange.get_df() if self.STATIC else pair_exchange.update_announcements(
+                page_size=random.randint(1, 100)  # randomize page size to avoid binance caching document page
+            )
+            df = df[df[pair_exchange.ANNOUNCEMENT_COL] > (datetime.now(tz=pytz.utc) - timedelta(
+                hours=pair_exchange.whitelist_hours
+            ))]
 
-        pairs = [get_token_from_pair(v, 0) for v in pairlist]
-        df = df[df[self.pair_exchange.TOKEN_COL].isin(pairs)]
-        return [f"{token}/{self._stake_currency}" for token in df[self.pair_exchange.TOKEN_COL]]
+            if df.empty:
+                continue
 
-    def _init_pair_exchange(self, config, **pair_exchange_kwargs):
+            pairs = [get_token_from_pair(v, 0) for v in pairlist]
+            df = df[df[pair_exchange.TOKEN_COL].isin(pairs)]
+
+            filtered_pairlist += [f"{token}/{self._stake_currency}" for token in df[pair_exchange.TOKEN_COL]]
+        return filtered_pairlist
+
+    @staticmethod
+    def _init_pair_exchange(pair_exchange, config, **pair_exchange_kwargs):
         pair_exchange_kwargs['db_path'] = config.get('ba_database_uri', None)
-        pair_exchange_kwargs['refresh_period'] = self._refresh_period
 
-        if self._pair_exchange == 'binance':
+        if pair_exchange == 'binance':
             exchange = BinanceAnnouncement(**pair_exchange_kwargs)
-        elif self._pair_exchange == 'kucoin':
+        elif pair_exchange == 'kucoin':
             exchange = KucoinAnnouncement(**pair_exchange_kwargs)
         else:
-            raise OperationalException(f'Exchange `{self._pair_exchange}` is not supported yet')
+            raise OperationalException(f'Exchange `{pair_exchange}` is not supported yet')
 
         assert hasattr(exchange, 'update_announcements'), '`update_announcements` method is required'
         assert hasattr(exchange, 'TOKEN_COL'), '`TOKEN_COL` attribute is required'
