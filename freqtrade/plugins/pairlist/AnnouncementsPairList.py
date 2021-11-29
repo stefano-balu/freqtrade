@@ -102,7 +102,7 @@ class BinanceAnnouncement(AnnouncementMixin):
 
         try:
             now = datetime.now(tz=pytz.utc)
-            df = self.get_df()
+            df = self.get_df(refresh=True)
 
             try:
                 response = get(url, headers=headers)
@@ -201,9 +201,9 @@ class BinanceAnnouncement(AnnouncementMixin):
     def _get_tokens(self, text: str):
         return self.BINANCE_TOKEN_REGEX.findall(text)
 
-    def get_df(self):
+    def get_df(self, refresh=False):
         """Get Dataframe from CSV file or from Database"""
-        if self._df is None:
+        if self._df is None or refresh:
             self.load_csv_db() if self.db_path.endswith('csv') else self.load_db()
         return self._df
 
@@ -304,7 +304,7 @@ class KucoinAnnouncement(AnnouncementMixin):
 
         try:
             now = datetime.now(tz=pytz.utc)
-            df = self.get_df()
+            df = self.get_df(refresh=True)
 
             try:
                 response = get(url, headers=headers)
@@ -384,9 +384,9 @@ class KucoinAnnouncement(AnnouncementMixin):
     def _get_tokens(self, text: str):
         return self.TOKEN_REGEX.findall(text)
 
-    def get_df(self):
+    def get_df(self, refresh=False):
         """Get Dataframe from CSV file or from Database"""
-        if self._df is None:
+        if self._df is None or refresh:
             self.load_csv_db() if self.db_path.endswith('csv') else self.load_db()
         return self._df
 
@@ -509,7 +509,7 @@ class AnnouncementsPairList(IPairList):
         """
         filtered_pairlist = []
         for pair_exchange in self.pair_exchanges:
-            df = pair_exchange.get_df() if self.STATIC else pair_exchange.update_announcements(
+            df = pair_exchange.get_df(refresh=True) if self.STATIC else pair_exchange.update_announcements(
                 page_size=random.randint(1, 100)  # randomize page size to avoid binance caching document page
             )
             df = df[df[pair_exchange.ANNOUNCEMENT_COL] > (datetime.now(tz=pytz.utc) - timedelta(
