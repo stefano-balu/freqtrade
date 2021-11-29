@@ -23,10 +23,11 @@ import re
 import pytz
 
 import pandas as pd
+from sqlalchemy.exc import ProgrammingError
 
 from freqtrade.exceptions import OperationalException, TemporaryError
 from freqtrade.plugins.pairlist.IPairList import IPairList
-from freqtrade.persistence import binanceannouncements
+from freqtrade.persistence import announcements
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +114,7 @@ class BinanceAnnouncement(AnnouncementMixin):
                     try:
                         url = self.get_api_url(random.randint(1, max_page), page_size)
                         response = get(url, headers=headers)
-                    except Exception:
+                    except:
                         break
                     time.sleep(0.5)
 
@@ -214,12 +215,12 @@ class BinanceAnnouncement(AnnouncementMixin):
 
     def load_db(self):
         try:
-            self._df = binanceannouncements.get_df(self.db_path, self.table_name)
-        except binanceannouncements.ProgrammingError:
+            self._df = announcements.get_df(self.db_path, self.table_name)
+        except ProgrammingError:
             pass
 
     def save_db(self):
-        binanceannouncements.save_df(self._df, self.db_path, self.table_name)
+        announcements.save_df(self._df, self.db_path, self.table_name)
 
     def _save_df(self, df: pd.DataFrame):
         self._df = df.sort_values(by='Datetime announcement')
@@ -397,12 +398,12 @@ class KucoinAnnouncement(AnnouncementMixin):
 
     def load_db(self):
         try:
-            self._df = binanceannouncements.get_df(self.db_path, self.table_name)
-        except binanceannouncements.ProgrammingError:
+            self._df = announcements.get_df(self.db_path, self.table_name)
+        except ProgrammingError:
             pass
 
     def save_db(self):
-        binanceannouncements.save_df(self._df, self.db_path, self.table_name)
+        announcements.save_df(self._df, self.db_path, self.table_name)
 
     def _save_df(self, df: pd.DataFrame):
         self._df = df.sort_values(by='Datetime announcement')
@@ -522,7 +523,7 @@ class AnnouncementsPairList(IPairList):
             df = df[df[pair_exchange.TOKEN_COL].isin(pairs)]
 
             filtered_pairlist += [f"{token}/{self._stake_currency}" for token in df[pair_exchange.TOKEN_COL]]
-        return filtered_pairlist
+        return list(set(filtered_pairlist))
 
     @staticmethod
     def _init_pair_exchange(pair_exchange, config, **pair_exchange_kwargs):

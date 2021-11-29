@@ -3,7 +3,6 @@ import pandas as pd
 import pytz
 
 from sqlalchemy import create_engine
-from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.types import DateTime
 
 
@@ -17,24 +16,22 @@ def get_connection(uri: str):
 
 def get_df(uri, table_name):
     """Get dataframe and the first time create DB."""
-    connection = get_connection(uri)
-    try:
-        return pd.read_sql_table(
-            table_name=table_name,
-            con=connection,
-            index_col='index',
-            columns=['Token', 'Text', 'Link', 'Datetime discover', 'Datetime announcement'],
-        )
-    except ValueError as e:
-        return None
-    finally:
-        connection.close()
+    with get_connection(uri) as connection:
+        try:
+            df = pd.read_sql_table(
+                table_name=table_name,
+                con=connection,
+                index_col='index',
+                columns=['Token', 'Text', 'Link', 'Datetime discover', 'Datetime announcement'],
+            )
+        except ValueError:
+            df = None
+    return df
 
 
 def save_df(df, uri, table_name):
     """Save dataframe on DB."""
-    connection = get_connection(uri)
-    try:
+    with get_connection(uri) as connection:
         df.to_sql(
             name=table_name,
             con=connection,
@@ -44,5 +41,3 @@ def save_df(df, uri, table_name):
             dtype={"Datetime discover": DateTime(timezone=pytz.utc),
                    "Datetime announcement": DateTime(timezone=pytz.utc)}
         )
-    finally:
-        connection.close()
